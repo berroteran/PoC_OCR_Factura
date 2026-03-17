@@ -27,12 +27,17 @@ import java.awt.Frame;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.text.Normalizer;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public final class ProcessingDialog extends JDialog {
+    private static final Logger LOGGER = Logger.getLogger(ProcessingDialog.class.getName());
+
     private final AppConfig config;
     private final List<Path> imagePaths;
     private final List<DocumentProcessingResult> processedResults;
@@ -41,6 +46,8 @@ public final class ProcessingDialog extends JDialog {
     private final JLabel indexLabel;
     private final JLabel statusLabel;
     private final JLabel imageLabel;
+    private final JLabel invoiceTagLabel;
+    private final JLabel carTagLabel;
     private final JProgressBar progressBar;
     private final JTextArea recoveredTextArea;
     private final JButton nextButton;
@@ -86,6 +93,13 @@ public final class ProcessingDialog extends JDialog {
         textScroll.setPreferredSize(new Dimension(850, 200));
 
         JPanel bottomPanel = new JPanel(new BorderLayout(8, 8));
+        JPanel tagsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 0));
+        invoiceTagLabel = new JLabel();
+        carTagLabel = new JLabel();
+        resetClassificationLabels();
+        tagsPanel.add(invoiceTagLabel);
+        tagsPanel.add(carTagLabel);
+        bottomPanel.add(tagsPanel, BorderLayout.NORTH);
         bottomPanel.add(textScroll, BorderLayout.CENTER);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -121,6 +135,7 @@ public final class ProcessingDialog extends JDialog {
         indexLabel.setText("Imagen " + (currentIndex + 1) + " de " + imagePaths.size() + " - " + imagePath.getFileName());
         nextButton.setEnabled(false);
         recoveredTextArea.setText("");
+        resetClassificationLabels();
 
         setImagePreview(imagePath);
         setProgressSending();
@@ -157,6 +172,7 @@ public final class ProcessingDialog extends JDialog {
 
                     DocumentProcessingResult result = get();
                     processedResults.set(currentIndex, result);
+                    updateClassificationLabels(result);
                     recoveredTextArea.setText(buildRecoveredText(result));
                     statusLabel.setText(result.success() ? "Completado" : "Error en OCR/API");
 
@@ -221,11 +237,202 @@ public final class ProcessingDialog extends JDialog {
         if (extraction == null) {
             return "No se obtuvo estructura de extraccion.";
         }
-        String rawText = extraction.rawText();
-        if (rawText == null || rawText.isBlank()) {
-            return "OCR completado, pero el modelo no devolvio raw_text.";
+        if (extraction.rawText() != null && !extraction.rawText().isBlank()) {
+            LOGGER.info("raw_text OCR: " + extraction.rawText());
+        } else {
+            LOGGER.info("raw_text OCR no disponible para esta imagen.");
         }
-        return rawText;
+        if (extraction.isInvoice()) {
+            return buildInvoiceInterpretation(extraction);
+        }
+        return buildNonInvoiceInterpretation(extraction);
+    }
+
+    private static String buildInvoiceInterpretation(ExtractionPayload extraction) {
+        String supplier = pick(extraction.supplierName(), "comercio no identificado");
+        String customer = pick(extraction.customerName(), "cliente no identificado");
+        String date = pick(extraction.invoiceDate(), "fecha no identificada");
+        String number = pick(extraction.invoiceNumber(), "sin numero visible");
+        String total = formatAmount(extraction.total(), extraction.currency(), "monto total no identificado");
+        String subtotal = formatAmount(extraction.subtotal(), extraction.currency(), null);
+        String tax = formatAmount(extraction.tax(), extraction.currency(), null);
+        String taxId = pick(extraction.supplierTaxId(), null);
+        String confidence = extraction.confidence() == null
+                ? null
+                : String.format("%.2f", extraction.confidence());
+
+        StringBuilder prose = new StringBuilder();
+        prose.append("Es una factura emitida por ")
+                .append(supplier)
+                .append(" para ")
+                .append(customer)
+                .append(", con fecha ")
+                .append(date)
+                .append(" y numero ")
+                .append(number)
+                .append(", por un monto de ")
+                .append(total)
+                .append(".");
+
+        if (taxId != null) {
+            prose.append(" El NIT/ID fiscal del comercio es ").append(taxId).append(".");
+        }
+        if (subtotal != null || tax != null) {
+            prose.append(" Desglose: ");
+            if (subtotal != null) {
+                prose.append("subtotal ").append(subtotal);
+            }
+            if (subtotal != null && tax != null) {
+                prose.append(", ");
+            }
+            if (tax != null) {
+                prose.append("impuesto ").append(tax);
+            }
+            prose.append(".");
+        }
+        if (extraction.lineItems() != null && !extraction.lineItems().isEmpty()) {
+            List<String> descriptions = extraction.lineItems().stream()
+                    .map(item -> item.description())
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(text -> !text.isBlank())
+                    .limit(3)
+                    .collect(Collectors.toList());
+            if (!descriptions.isEmpty()) {
+                prose.append(" Productos/servicios detectados: ")
+                        .append(String.join(", ", descriptions))
+                        .append(".");
+            }
+        }
+        if (confidence != null) {
+            prose.append(" Confianza estimada de extraccion: ").append(confidence).append(".");
+        }
+        if (extraction.notes() != null && !extraction.notes().isBlank()) {
+            prose.append(" Nota: ").append(extraction.notes().trim()).append(".");
+        }
+        return prose.toString();
+    }
+
+    private static String buildNonInvoiceInterpretation(ExtractionPayload extraction) {
+        String docType = pick(extraction.documentType(), "documento no clasificado");
+        String supplier = pick(extraction.supplierName(), null);
+        String date = pick(extraction.invoiceDate(), null);
+        String number = pick(extraction.invoiceNumber(), null);
+        String confidence = extraction.confidence() == null
+                ? null
+                : String.format("%.2f", extraction.confidence());
+
+        StringBuilder prose = new StringBuilder();
+        prose.append("No parece ser una factura. ")
+                .append("Se interpreta como un documento tipo ")
+                .append(docType)
+                .append(".");
+
+        if (supplier != null) {
+            prose.append(" Entidad/comercio detectado: ").append(supplier).append(".");
+        }
+        if (date != null) {
+            prose.append(" Fecha detectada: ").append(date).append(".");
+        }
+        if (number != null) {
+            prose.append(" Numero de referencia detectado: ").append(number).append(".");
+        }
+        if (extraction.notes() != null && !extraction.notes().isBlank()) {
+            prose.append(" Observacion del modelo: ").append(extraction.notes().trim()).append(".");
+        }
+        if (confidence != null) {
+            prose.append(" Confianza estimada de clasificacion: ").append(confidence).append(".");
+        }
+        return prose.toString();
+    }
+
+    private static String pick(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim();
+    }
+
+    private static String formatAmount(Object amount, String currency, String fallback) {
+        if (amount == null) {
+            return fallback;
+        }
+        String value = amount.toString();
+        if (currency == null || currency.isBlank()) {
+            return value;
+        }
+        return currency.trim().toUpperCase() + " " + value;
+    }
+
+    private void resetClassificationLabels() {
+        invoiceTagLabel.setText(asHtmlTag("ES FACTURA", "-", "#666666", false));
+        carTagLabel.setText(asHtmlTag("ES DE CARRO", "-", "#666666", false));
+    }
+
+    private void updateClassificationLabels(DocumentProcessingResult result) {
+        boolean isInvoice = false;
+        boolean isCarInvoice = false;
+
+        if (result.success() && result.extraction() != null) {
+            ExtractionPayload extraction = result.extraction();
+            isInvoice = extraction.isInvoice();
+            isCarInvoice = isInvoice && detectCarInvoice(extraction);
+        }
+
+        invoiceTagLabel.setText(
+                isInvoice
+                        ? asHtmlTag("ES FACTURA", "SI", "#0b5ed7", true)
+                        : asHtmlTag("ES FACTURA", "NO", "#d00000", false)
+        );
+        carTagLabel.setText(
+                isCarInvoice
+                        ? asHtmlTag("ES DE CARRO", "SI", "#0b5ed7", true)
+                        : asHtmlTag("ES DE CARRO", "NO", "#d00000", false)
+        );
+    }
+
+    private static boolean detectCarInvoice(ExtractionPayload extraction) {
+        StringBuilder source = new StringBuilder();
+        appendIfPresent(source, extraction.rawText());
+        appendIfPresent(source, extraction.documentType());
+        appendIfPresent(source, extraction.notes());
+        appendIfPresent(source, extraction.supplierName());
+        appendIfPresent(source, extraction.customerName());
+        if (extraction.lineItems() != null) {
+            extraction.lineItems().forEach(item -> appendIfPresent(source, item.description()));
+        }
+
+        String normalized = normalize(source.toString());
+        List<String> keywords = List.of(
+                "carro", "vehiculo", "automovil", "auto", "pickup", "camioneta",
+                "sedan", "suv", "vin", "chasis", "placa", "motor", "modelo", "marca", "vehicle", "car"
+        );
+        for (String keyword : keywords) {
+            if (normalized.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalize(String value) {
+        String cleaned = value == null ? "" : value;
+        String normalized = Normalizer.normalize(cleaned, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
+        return normalized.toLowerCase();
+    }
+
+    private static void appendIfPresent(StringBuilder sb, String value) {
+        if (value != null && !value.isBlank()) {
+            sb.append(' ').append(value);
+        }
+    }
+
+    private static String asHtmlTag(String label, String value, String color, boolean boldValue) {
+        String valueHtml = boldValue
+                ? "<b><span style='color:" + color + ";'>" + value + "</span></b>"
+                : "<span style='color:" + color + ";'>" + value + "</span>";
+        return "<html><b>" + label + ":</b> " + valueHtml + "</html>";
     }
 
     private void persistCurrentResults() {
@@ -252,4 +459,3 @@ public final class ProcessingDialog extends JDialog {
         };
     }
 }
-
