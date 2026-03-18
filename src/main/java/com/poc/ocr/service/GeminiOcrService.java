@@ -18,10 +18,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.logging.Logger;
 
 public final class GeminiOcrService implements OcrService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
+    private static final Logger LOGGER = Logger.getLogger(GeminiOcrService.class.getName());
 
     private final HttpClient httpClient;
     private final String apiKey;
@@ -52,7 +54,8 @@ public final class GeminiOcrService implements OcrService {
         ObjectNode generationConfig = payload.putObject("generationConfig");
         generationConfig.put("responseMimeType", "application/json");
 
-        String endpoint = API_BASE + model + ":generateContent?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+        String endpointWithoutKey = API_BASE + model + ":generateContent";
+        String endpoint = endpointWithoutKey + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(120))
@@ -60,15 +63,30 @@ public final class GeminiOcrService implements OcrService {
                 .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) {
-            throw new IllegalStateException(
-                    "Gemini API devolvio " + response.statusCode() + ": " + truncate(response.body())
-            );
-        }
+        long startNs = System.nanoTime();
+        int statusCode = -1;
+        LOGGER.info("OCR request start | service=gemini | model=" + model
+                + " | endpoint=" + endpointWithoutKey
+                + " | file=" + imagePath.getFileName());
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            statusCode = response.statusCode();
+            if (response.statusCode() >= 300) {
+                throw new IllegalStateException(
+                        "Gemini API devolvio " + response.statusCode() + ": " + truncate(response.body())
+                );
+            }
 
-        String modelText = extractResponseText(response.body());
-        return JsonUtils.parseExtractionPayload(modelText);
+            String modelText = extractResponseText(response.body());
+            return JsonUtils.parseExtractionPayload(modelText);
+        } finally {
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
+            LOGGER.info("OCR request end | service=gemini | model=" + model
+                    + " | endpoint=" + endpointWithoutKey
+                    + " | status=" + statusCode
+                    + " | elapsed_ms=" + elapsedMs
+                    + " | file=" + imagePath.getFileName());
+        }
     }
 
     @Override
@@ -115,4 +133,3 @@ public final class GeminiOcrService implements OcrService {
         return text.length() <= limit ? text : text.substring(0, limit) + "...";
     }
 }
-

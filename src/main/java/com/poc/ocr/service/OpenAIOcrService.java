@@ -16,10 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.logging.Logger;
 
 public final class OpenAIOcrService implements OcrService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String RESPONSES_API = "https://api.openai.com/v1/responses";
+    private static final Logger LOGGER = Logger.getLogger(OpenAIOcrService.class.getName());
 
     private final HttpClient httpClient;
     private final String apiKey;
@@ -62,15 +64,30 @@ public final class OpenAIOcrService implements OcrService {
                 .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) {
-            throw new IllegalStateException(
-                    "OpenAI API devolvio " + response.statusCode() + ": " + truncate(response.body())
-            );
-        }
+        long startNs = System.nanoTime();
+        int statusCode = -1;
+        LOGGER.info("OCR request start | service=openai | model=" + model
+                + " | endpoint=" + RESPONSES_API
+                + " | file=" + imagePath.getFileName());
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            statusCode = response.statusCode();
+            if (response.statusCode() >= 300) {
+                throw new IllegalStateException(
+                        "OpenAI API devolvio " + response.statusCode() + ": " + truncate(response.body())
+                );
+            }
 
-        String modelText = extractResponseText(response.body());
-        return JsonUtils.parseExtractionPayload(modelText);
+            String modelText = extractResponseText(response.body());
+            return JsonUtils.parseExtractionPayload(modelText);
+        } finally {
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
+            LOGGER.info("OCR request end | service=openai | model=" + model
+                    + " | endpoint=" + RESPONSES_API
+                    + " | status=" + statusCode
+                    + " | elapsed_ms=" + elapsedMs
+                    + " | file=" + imagePath.getFileName());
+        }
     }
 
     @Override
@@ -125,4 +142,3 @@ public final class OpenAIOcrService implements OcrService {
         return text.length() <= limit ? text : text.substring(0, limit) + "...";
     }
 }
-
