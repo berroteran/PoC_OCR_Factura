@@ -52,6 +52,7 @@ En la ventana principal:
 
 - Boton `Procesar`: revisa la carpeta y busca imagenes.
 - Si hay 1 o mas, abre dialogo de procesamiento.
+- Tambien soporta archivos PDF.
 
 En el dialogo de procesamiento:
 
@@ -60,6 +61,11 @@ En el dialogo de procesamiento:
 - Muestra abajo el texto OCR recuperado (`raw_text`).
 - El avance es manual con `Siguiente`.
 - `Siguiente` solo se activa si hay imagenes pendientes.
+- Si un PDF no trae imagenes extraibles y es PDF de texto, se marca como sospechoso de posible documento falso.
+- Regla de utilidad principal: solo se considera factura util cuando cumple:
+  - es factura,
+  - es de Chile (`CL`),
+  - es factura de compra/venta de vehiculo.
 
 Tambien puedes sobreescribir por CLI:
 

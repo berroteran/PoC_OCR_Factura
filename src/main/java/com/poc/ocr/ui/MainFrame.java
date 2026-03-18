@@ -1,6 +1,7 @@
 package com.poc.ocr.ui;
 
 import com.poc.ocr.config.AppConfig;
+import com.poc.ocr.service.DocumentInputPreparer;
 import com.poc.ocr.service.ImageScanner;
 
 import javax.swing.JButton;
@@ -63,9 +64,9 @@ public final class MainFrame extends JFrame {
             }
         }
 
-        List<Path> images;
+        List<Path> files;
         try {
-            images = ImageScanner.findImages(currentConfig.inputDir(), currentConfig.maxImages());
+            files = ImageScanner.findImages(currentConfig.inputDir(), currentConfig.maxImages());
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(
                     this,
@@ -76,18 +77,28 @@ public final class MainFrame extends JFrame {
             return;
         }
 
-        if (images.isEmpty()) {
+        if (files.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this,
-                    "No se encontraron imagenes en la carpeta seleccionada.",
-                    "Sin imagenes",
+                    "No se encontraron imagenes ni PDFs en la carpeta seleccionada.",
+                    "Sin documentos",
                     JOptionPane.INFORMATION_MESSAGE
             );
             return;
         }
 
-        ProcessingDialog dialog = new ProcessingDialog(this, currentConfig, images);
-        dialog.setVisible(true);
+        try {
+            List<DocumentInputPreparer.PreparedDocument> preparedDocuments = DocumentInputPreparer.prepare(files);
+            ProcessingDialog dialog = new ProcessingDialog(this, currentConfig, preparedDocuments);
+            dialog.setVisible(true);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "No se pudo preparar los documentos: " + ex.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
     }
 
     private void updateConfigLabel() {
@@ -101,4 +112,3 @@ public final class MainFrame extends JFrame {
         );
     }
 }
-
