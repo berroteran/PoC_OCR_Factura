@@ -30,6 +30,8 @@ import java.awt.FlowLayout;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.text.Normalizer;
@@ -63,6 +65,7 @@ public final class ProcessingDialog extends JDialog {
     private final JButton closeButton;
 
     private int currentIndex = 0;
+    private boolean processingStarted = false;
     private SwingWorker<DocumentProcessingResult, Void> currentWorker;
 
     public ProcessingDialog(Frame owner, AppConfig config, List<DocumentInputPreparer.PreparedDocument> documents) {
@@ -134,8 +137,15 @@ public final class ProcessingDialog extends JDialog {
 
         setSize(980, 860);
         setLocationRelativeTo(owner);
-
-        startProcessingCurrentImage();
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                if (!processingStarted) {
+                    processingStarted = true;
+                    startProcessingCurrentImage();
+                }
+            }
+        });
     }
 
     private void onNext() {
