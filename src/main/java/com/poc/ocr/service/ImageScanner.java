@@ -11,7 +11,7 @@ import java.util.stream.Stream;
 
 public final class ImageScanner {
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
-            "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"
+            "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "pdf"
     );
 
     private ImageScanner() {
@@ -45,4 +45,3 @@ public final class ImageScanner {
         return SUPPORTED_EXTENSIONS.contains(ext);
     }
 }
-

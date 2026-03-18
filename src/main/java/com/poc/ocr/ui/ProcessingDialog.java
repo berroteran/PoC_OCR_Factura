@@ -3,10 +3,14 @@ package com.poc.ocr.ui;
 import com.poc.ocr.config.AppConfig;
 import com.poc.ocr.model.DocumentProcessingResult;
 import com.poc.ocr.model.ExtractionPayload;
+import com.poc.ocr.service.DocumentInputPreparer;
 import com.poc.ocr.service.GeminiOcrService;
 import com.poc.ocr.service.OcrService;
 import com.poc.ocr.service.OpenAIOcrService;
 import com.poc.ocr.service.ResultWriter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
@@ -24,6 +28,7 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
+import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
@@ -36,10 +41,13 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public final class ProcessingDialog extends JDialog {
+    private static final String TARGET_COUNTRY_CODE = "CL";
     private static final Logger LOGGER = Logger.getLogger(ProcessingDialog.class.getName());
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper()
+            .enable(SerializationFeature.INDENT_OUTPUT);
 
     private final AppConfig config;
-    private final List<Path> imagePaths;
+    private final List<DocumentInputPreparer.PreparedDocument> documents;
     private final List<DocumentProcessingResult> processedResults;
     private final OcrService ocrService;
 
@@ -49,19 +57,20 @@ public final class ProcessingDialog extends JDialog {
     private final JLabel invoiceTagLabel;
     private final JLabel carTagLabel;
     private final JProgressBar progressBar;
-    private final JTextArea recoveredTextArea;
+    private final JTextArea proseTextArea;
+    private final JTextArea jsonTextArea;
     private final JButton nextButton;
     private final JButton closeButton;
 
     private int currentIndex = 0;
     private SwingWorker<DocumentProcessingResult, Void> currentWorker;
 
-    public ProcessingDialog(Frame owner, AppConfig config, List<Path> imagePaths) {
+    public ProcessingDialog(Frame owner, AppConfig config, List<DocumentInputPreparer.PreparedDocument> documents) {
         super(owner, "Procesamiento OCR", true);
         this.config = config;
-        this.imagePaths = imagePaths;
+        this.documents = documents;
         this.processedResults = new ArrayList<>();
-        for (int i = 0; i < imagePaths.size(); i++) {
+        for (int i = 0; i < documents.size(); i++) {
             processedResults.add(null);
         }
         this.ocrService = buildService(config);
@@ -85,12 +94,22 @@ public final class ProcessingDialog extends JDialog {
         imageScroll.setPreferredSize(new Dimension(850, 450));
         add(imageScroll, BorderLayout.CENTER);
 
-        recoveredTextArea = new JTextArea(10, 80);
-        recoveredTextArea.setEditable(false);
-        recoveredTextArea.setLineWrap(true);
-        recoveredTextArea.setWrapStyleWord(true);
-        JScrollPane textScroll = new JScrollPane(recoveredTextArea);
-        textScroll.setPreferredSize(new Dimension(850, 200));
+        proseTextArea = new JTextArea(10, 40);
+        proseTextArea.setEditable(false);
+        proseTextArea.setLineWrap(true);
+        proseTextArea.setWrapStyleWord(true);
+        JScrollPane proseScroll = new JScrollPane(proseTextArea);
+
+        jsonTextArea = new JTextArea(10, 40);
+        jsonTextArea.setEditable(false);
+        jsonTextArea.setLineWrap(false);
+        jsonTextArea.setWrapStyleWord(false);
+        JScrollPane jsonScroll = new JScrollPane(jsonTextArea);
+
+        JPanel textPanel = new JPanel(new GridLayout(1, 2, 8, 0));
+        textPanel.add(proseScroll);
+        textPanel.add(jsonScroll);
+        textPanel.setPreferredSize(new Dimension(850, 220));
 
         JPanel bottomPanel = new JPanel(new BorderLayout(8, 8));
         JPanel tagsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 0));
@@ -100,7 +119,7 @@ public final class ProcessingDialog extends JDialog {
         tagsPanel.add(invoiceTagLabel);
         tagsPanel.add(carTagLabel);
         bottomPanel.add(tagsPanel, BorderLayout.NORTH);
-        bottomPanel.add(textScroll, BorderLayout.CENTER);
+        bottomPanel.add(textPanel, BorderLayout.CENTER);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         nextButton = new JButton("Siguiente");
@@ -123,7 +142,7 @@ public final class ProcessingDialog extends JDialog {
         if (currentWorker != null && !currentWorker.isDone()) {
             return;
         }
-        if (currentIndex >= imagePaths.size() - 1) {
+        if (currentIndex >= documents.size() - 1) {
             return;
         }
         currentIndex++;
@@ -131,22 +150,40 @@ public final class ProcessingDialog extends JDialog {
     }
 
     private void startProcessingCurrentImage() {
-        Path imagePath = imagePaths.get(currentIndex);
-        indexLabel.setText("Imagen " + (currentIndex + 1) + " de " + imagePaths.size() + " - " + imagePath.getFileName());
+        DocumentInputPreparer.PreparedDocument document = documents.get(currentIndex);
+        indexLabel.setText("Documento " + (currentIndex + 1) + " de " + documents.size() + " - " + document.displayName());
         nextButton.setEnabled(false);
-        recoveredTextArea.setText("");
+        proseTextArea.setText("");
+        jsonTextArea.setText("");
         resetClassificationLabels();
 
-        setImagePreview(imagePath);
+        if (document.imagePath() != null) {
+            setImagePreview(document.imagePath());
+        } else {
+            imageLabel.setIcon(null);
+            imageLabel.setText("Documento sin imagen extraible");
+        }
         setProgressSending();
 
         currentWorker = new SwingWorker<>() {
             @Override
             protected DocumentProcessingResult doInBackground() {
                 try {
-                    ExtractionPayload extraction = ocrService.analyzeImage(imagePath);
+                    if (document.imagePath() == null) {
+                        return DocumentProcessingResult.failure(
+                                document.sourcePath(),
+                                "local-pdf-check",
+                                "pdf-text-only",
+                                OffsetDateTime.now(),
+                                document.suspicionReason() == null
+                                        ? "PDF sin imagenes extraibles; sospechoso."
+                                        : document.suspicionReason()
+                        );
+                    }
+
+                    ExtractionPayload extraction = ocrService.analyzeImage(document.imagePath());
                     return DocumentProcessingResult.success(
-                            imagePath,
+                            document.sourcePath(),
                             ocrService.providerName(),
                             ocrService.modelName(),
                             OffsetDateTime.now(),
@@ -154,7 +191,7 @@ public final class ProcessingDialog extends JDialog {
                     );
                 } catch (Exception e) {
                     return DocumentProcessingResult.failure(
-                            imagePath,
+                            document.sourcePath(),
                             ocrService.providerName(),
                             ocrService.modelName(),
                             OffsetDateTime.now(),
@@ -173,16 +210,19 @@ public final class ProcessingDialog extends JDialog {
                     DocumentProcessingResult result = get();
                     processedResults.set(currentIndex, result);
                     updateClassificationLabels(result);
-                    recoveredTextArea.setText(buildRecoveredText(result));
+                    DisplayContent displayContent = buildDisplayContent(result);
+                    proseTextArea.setText(displayContent.prose());
+                    jsonTextArea.setText(displayContent.json());
                     statusLabel.setText(result.success() ? "Completado" : "Error en OCR/API");
 
                     persistCurrentResults();
                 } catch (Exception e) {
-                    recoveredTextArea.setText("Error inesperado al finalizar: " + e.getMessage());
+                    proseTextArea.setText("Error inesperado al finalizar: " + e.getMessage());
+                    jsonTextArea.setText("{\"error\":\"Error inesperado al finalizar\"}");
                     statusLabel.setText("Error inesperado");
                 }
 
-                boolean hasPending = currentIndex < imagePaths.size() - 1;
+                boolean hasPending = currentIndex < documents.size() - 1;
                 nextButton.setEnabled(hasPending);
             }
         };
@@ -229,40 +269,117 @@ public final class ProcessingDialog extends JDialog {
         return new ImageIcon(scaled);
     }
 
-    private String buildRecoveredText(DocumentProcessingResult result) {
+    private DisplayContent buildDisplayContent(DocumentProcessingResult result) {
+        String prose;
         if (!result.success()) {
-            return "Error:\n" + result.error();
+            String json = buildResultJson(result, null);
+            String error = result.error() == null ? "" : result.error();
+            if (normalize(error).contains("sospechoso")) {
+                prose = "Documento sospechoso: " + error;
+            } else {
+                prose = "Error durante OCR/API: " + error;
+            }
+            return new DisplayContent(prose, json);
         }
+
         ExtractionPayload extraction = result.extraction();
         if (extraction == null) {
-            return "No se obtuvo estructura de extraccion.";
+            String json = buildResultJson(result, null);
+            prose = "No se obtuvo estructura de extraccion.";
+            return new DisplayContent(prose, json);
         }
         if (extraction.rawText() != null && !extraction.rawText().isBlank()) {
             LOGGER.info("raw_text OCR: " + extraction.rawText());
         } else {
             LOGGER.info("raw_text OCR no disponible para esta imagen.");
         }
-        if (extraction.isInvoice()) {
-            return buildInvoiceInterpretation(extraction);
+        Evaluation evaluation = evaluateExtraction(extraction);
+        String json = buildResultJson(result, evaluation);
+        if (!evaluation.isUsefulInvoice()) {
+            prose = buildNotUsefulInterpretation(extraction, evaluation);
+        } else {
+            prose = buildInvoiceInterpretation(extraction, evaluation);
         }
-        return buildNonInvoiceInterpretation(extraction);
+        return new DisplayContent(prose, json);
     }
 
-    private static String buildInvoiceInterpretation(ExtractionPayload extraction) {
-        String supplier = pick(extraction.supplierName(), "comercio no identificado");
-        String customer = pick(extraction.customerName(), "cliente no identificado");
-        String date = pick(extraction.invoiceDate(), "fecha no identificada");
-        String number = pick(extraction.invoiceNumber(), "sin numero visible");
-        String total = formatAmount(extraction.total(), extraction.currency(), "monto total no identificado");
+    private static String buildResultJson(DocumentProcessingResult result, Evaluation evaluation) {
+        try {
+            if (result.success() && result.extraction() != null) {
+                ObjectNode node = JSON_MAPPER.valueToTree(result.extraction());
+                if (evaluation != null) {
+                    node.put("is_invoice", evaluation.isInvoice());
+                    node.put("is_chile_invoice", evaluation.isChileInvoice());
+                    node.put("is_vehicle_invoice", evaluation.isVehicleInvoice());
+                    node.put("is_useful_invoice", evaluation.isUsefulInvoice());
+                    String normalizedPlate = normalizedVehiclePlate(result.extraction());
+                    if (normalizedPlate != null) {
+                        node.put("vehicle_plate", normalizedPlate);
+                    }
+                    if (evaluation.countryCode() != null) {
+                        node.put("country_code", evaluation.countryCode());
+                    }
+                }
+                return JSON_MAPPER.writeValueAsString(node);
+            }
+            ObjectNode errorNode = JSON_MAPPER.createObjectNode();
+            errorNode.put("is_invoice", false);
+            errorNode.put("is_chile_invoice", false);
+            errorNode.put("is_vehicle_invoice", false);
+            errorNode.put("is_useful_invoice", false);
+            errorNode.put("file_name", result.fileName());
+            errorNode.put("file_path", result.filePath());
+            errorNode.put("error", coalesce("Error no especificado", result.error()));
+            return JSON_MAPPER.writeValueAsString(errorNode);
+        } catch (Exception e) {
+            return "{\"error\":\"No se pudo serializar resultado a JSON: " + sanitizeJson(e.getMessage()) + "\"}";
+        }
+    }
+
+    private static String sanitizeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static String buildInvoiceInterpretation(ExtractionPayload extraction, Evaluation evaluation) {
+        String supplier = coalesce("comercio no identificado", extraction.merchantName(), extraction.supplierName());
+        String customer = coalesce("cliente no identificado", extraction.customerName());
+        String date = coalesce("fecha no identificada", extraction.purchaseDate(), extraction.invoiceDate());
+        String number = coalesce("sin numero visible", extraction.invoiceNumber());
+        String total = formatAmount(
+                firstNonNull(extraction.totalPurchase(), extraction.total()),
+                extraction.currency(),
+                "monto total no identificado"
+        );
         String subtotal = formatAmount(extraction.subtotal(), extraction.currency(), null);
         String tax = formatAmount(extraction.tax(), extraction.currency(), null);
-        String taxId = pick(extraction.supplierTaxId(), null);
-        String confidence = extraction.confidence() == null
-                ? null
-                : String.format("%.2f", extraction.confidence());
+        String taxId = coalesce(null, extraction.supplierTaxId());
+        boolean vehicleInvoice = evaluation.isVehicleInvoice();
+        String vehicleCondition = coalesce(null, extraction.vehicleCondition(), extraction.vehicleConditionDetail());
+        String vehicleMake = coalesce(null, extraction.vehicleBrand(), extraction.vehicleMake());
+        String vehicleModel = coalesce(null, extraction.vehicleModel());
+        String vehicleYear = coalesce(null, extraction.vehicleYear());
+        String commercialYear = coalesce(null, extraction.commercialYear());
+        String vehicleType = coalesce(null, extraction.vehicleType());
+        String vehicleColor = coalesce(null, extraction.vehicleColor());
+        String vin = coalesce(null, extraction.vehicleVin());
+        String plate = normalizedVehiclePlate(extraction);
+        String engineNumber = coalesce(null, extraction.engineNumber(), extraction.vehicleEngineNumber());
+        String chassisNumber = coalesce(null, extraction.vehicleChassisNumber());
+        String mileage = coalesce(null, extraction.vehicleMileage());
+        String fuelType = coalesce(null, extraction.fuelType());
+        String sellerName = coalesce(null, extraction.sellerName());
+        String merchantCity = coalesce(null, extraction.merchantCity());
+        String confidence = formatProbability(extraction.invoiceProbability(), extraction.confidence());
+        String chileConfidence = formatProbability(extraction.chileInvoiceProbability(), null);
+        String vehicleConfidence = formatProbability(extraction.vehicleInvoiceProbability(), null);
 
         StringBuilder prose = new StringBuilder();
-        prose.append("Es una factura emitida por ")
+        prose.append(vehicleInvoice
+                        ? "Es una factura de compra/venta de vehiculo emitida por "
+                        : "Es una factura emitida por ")
                 .append(supplier)
                 .append(" para ")
                 .append(customer)
@@ -276,6 +393,60 @@ public final class ProcessingDialog extends JDialog {
 
         if (taxId != null) {
             prose.append(" El NIT/ID fiscal del comercio es ").append(taxId).append(".");
+        }
+        if (merchantCity != null) {
+            prose.append(" Ciudad del comercio: ").append(merchantCity).append(".");
+        }
+        if (sellerName != null) {
+            prose.append(" Vendedor identificado: ").append(sellerName).append(".");
+        }
+        if (vehicleInvoice) {
+            prose.append(" Datos de vehiculo: ");
+            List<String> details = new ArrayList<>();
+            if (vehicleCondition != null) {
+                details.add("condicion " + vehicleCondition);
+            }
+            if (vehicleMake != null) {
+                details.add("marca " + vehicleMake);
+            }
+            if (vehicleModel != null) {
+                details.add("modelo " + vehicleModel);
+            }
+            if (vehicleYear != null) {
+                details.add("anio " + vehicleYear);
+            }
+            if (commercialYear != null) {
+                details.add("anio comercial " + commercialYear);
+            }
+            if (vehicleType != null) {
+                details.add("tipo " + vehicleType);
+            }
+            if (vehicleColor != null) {
+                details.add("color " + vehicleColor);
+            }
+            if (vin != null) {
+                details.add("VIN " + vin);
+            }
+            if (plate != null) {
+                details.add("placa " + plate);
+            }
+            if (engineNumber != null) {
+                details.add("motor " + engineNumber);
+            }
+            if (chassisNumber != null) {
+                details.add("chasis " + chassisNumber);
+            }
+            if (mileage != null) {
+                details.add("kilometraje " + mileage);
+            }
+            if (fuelType != null) {
+                details.add("combustible " + fuelType);
+            }
+            if (details.isEmpty()) {
+                prose.append("no se pudieron extraer campos vehiculares detallados.");
+            } else {
+                prose.append(String.join(", ", details)).append(".");
+            }
         }
         if (subtotal != null || tax != null) {
             prose.append(" Desglose: ");
@@ -305,28 +476,67 @@ public final class ProcessingDialog extends JDialog {
             }
         }
         if (confidence != null) {
-            prose.append(" Confianza estimada de extraccion: ").append(confidence).append(".");
+            prose.append(" Probabilidad de ser factura: ").append(confidence).append(".");
         }
+        if (chileConfidence != null) {
+            prose.append(" Probabilidad de ser factura de Chile: ").append(chileConfidence).append(".");
+        }
+        if (vehicleConfidence != null) {
+            prose.append(" Probabilidad de ser factura de vehiculo: ").append(vehicleConfidence).append(".");
+        }
+        prose.append(" Campos clave: cliente ")
+                .append(customer)
+                .append(", fecha ")
+                .append(date)
+                .append(", marca ")
+                .append(coalesce("no identificada", vehicleMake))
+                .append(", modelo ")
+                .append(coalesce("no identificado", vehicleModel))
+                .append(", anio ")
+                .append(coalesce("no identificado", vehicleYear))
+                .append(", VIN/BIN ")
+                .append(coalesce("no identificado", vin))
+                .append(", motor ")
+                .append(coalesce("no identificado", engineNumber))
+                .append(", chasis ")
+                .append(coalesce("no identificado", chassisNumber))
+                .append(", placa ")
+                .append(coalesce("no identificada", plate))
+                .append(".");
         if (extraction.notes() != null && !extraction.notes().isBlank()) {
             prose.append(" Nota: ").append(extraction.notes().trim()).append(".");
         }
         return prose.toString();
     }
 
-    private static String buildNonInvoiceInterpretation(ExtractionPayload extraction) {
-        String docType = pick(extraction.documentType(), "documento no clasificado");
-        String supplier = pick(extraction.supplierName(), null);
-        String date = pick(extraction.invoiceDate(), null);
-        String number = pick(extraction.invoiceNumber(), null);
-        String confidence = extraction.confidence() == null
-                ? null
-                : String.format("%.2f", extraction.confidence());
+    private static String buildNotUsefulInterpretation(ExtractionPayload extraction, Evaluation evaluation) {
+        String docType = coalesce("documento no clasificado", extraction.documentType());
+        String supplier = coalesce(null, extraction.merchantName(), extraction.supplierName());
+        String date = coalesce(null, extraction.purchaseDate(), extraction.invoiceDate());
+        String number = coalesce(null, extraction.invoiceNumber());
+        String invoiceConfidence = formatProbability(extraction.invoiceProbability(), extraction.confidence());
+        String chileConfidence = formatProbability(extraction.chileInvoiceProbability(), null);
+        String vehicleConfidence = formatProbability(extraction.vehicleInvoiceProbability(), null);
 
         StringBuilder prose = new StringBuilder();
-        prose.append("No parece ser una factura. ")
+        prose.append("No se detecto una factura util para este flujo (factura + Chile + vehiculo). ")
                 .append("Se interpreta como un documento tipo ")
                 .append(docType)
                 .append(".");
+
+        List<String> blockers = new ArrayList<>();
+        if (!evaluation.isInvoice()) {
+            blockers.add("no cumple condicion de factura");
+        }
+        if (!evaluation.isChileInvoice()) {
+            blockers.add("no se detecta como documento de Chile");
+        }
+        if (!evaluation.isVehicleInvoice()) {
+            blockers.add("no se detecta como factura de compra/venta de vehiculo");
+        }
+        if (!blockers.isEmpty()) {
+            prose.append(" Motivo: ").append(String.join("; ", blockers)).append(".");
+        }
 
         if (supplier != null) {
             prose.append(" Entidad/comercio detectado: ").append(supplier).append(".");
@@ -340,17 +550,42 @@ public final class ProcessingDialog extends JDialog {
         if (extraction.notes() != null && !extraction.notes().isBlank()) {
             prose.append(" Observacion del modelo: ").append(extraction.notes().trim()).append(".");
         }
-        if (confidence != null) {
-            prose.append(" Confianza estimada de clasificacion: ").append(confidence).append(".");
+        if (invoiceConfidence != null) {
+            prose.append(" Probabilidad de ser factura: ").append(invoiceConfidence).append(".");
+        }
+        if (chileConfidence != null) {
+            prose.append(" Probabilidad de ser factura de Chile: ").append(chileConfidence).append(".");
+        }
+        if (vehicleConfidence != null) {
+            prose.append(" Probabilidad de ser factura de vehiculo: ").append(vehicleConfidence).append(".");
         }
         return prose.toString();
     }
 
-    private static String pick(String value, String fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
+    private static String coalesce(String fallback, String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
         }
-        return value.trim();
+        return fallback;
+    }
+
+    private static Object firstNonNull(Object... values) {
+        for (Object value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String formatProbability(Double primary, Double secondary) {
+        Double selected = primary != null ? primary : secondary;
+        if (selected == null) {
+            return null;
+        }
+        return String.format("%.2f", selected);
     }
 
     private static String formatAmount(Object amount, String currency, String fallback) {
@@ -364,6 +599,38 @@ public final class ProcessingDialog extends JDialog {
         return currency.trim().toUpperCase() + " " + value;
     }
 
+    private static String normalizedVehiclePlate(ExtractionPayload extraction) {
+        String explicitPlate = coalesce(null, extraction.vehiclePlate());
+        if (explicitPlate != null) {
+            return explicitPlate;
+        }
+        if (isNewVehicleCondition(extraction)) {
+            return "SIN_PLACA";
+        }
+        return null;
+    }
+
+    private static boolean isNewVehicleCondition(ExtractionPayload extraction) {
+        String condition = coalesce(null, extraction.vehicleCondition(), extraction.vehicleConditionDetail());
+        if (condition == null) {
+            return false;
+        }
+        String normalized = normalize(condition);
+        return normalized.contains("new")
+                || normalized.contains("nuevo")
+                || normalized.contains("0km")
+                || normalized.contains("0 km");
+    }
+
+    private static Evaluation evaluateExtraction(ExtractionPayload extraction) {
+        boolean isInvoice = extraction.isInvoice();
+        boolean isChile = isInvoice && detectChileInvoice(extraction);
+        boolean isVehicle = isInvoice && detectCarInvoice(extraction);
+        boolean isUseful = isInvoice && isChile && isVehicle;
+        String country = coalesce(null, extraction.countryCode(), isChile ? TARGET_COUNTRY_CODE : null);
+        return new Evaluation(isInvoice, isChile, isVehicle, isUseful, country);
+    }
+
     private void resetClassificationLabels() {
         invoiceTagLabel.setText(asHtmlTag("ES FACTURA", "-", "#666666", false));
         carTagLabel.setText(asHtmlTag("ES DE CARRO", "-", "#666666", false));
@@ -374,9 +641,9 @@ public final class ProcessingDialog extends JDialog {
         boolean isCarInvoice = false;
 
         if (result.success() && result.extraction() != null) {
-            ExtractionPayload extraction = result.extraction();
-            isInvoice = extraction.isInvoice();
-            isCarInvoice = isInvoice && detectCarInvoice(extraction);
+            Evaluation evaluation = evaluateExtraction(result.extraction());
+            isInvoice = evaluation.isInvoice();
+            isCarInvoice = evaluation.isVehicleInvoice();
         }
 
         invoiceTagLabel.setText(
@@ -392,23 +659,95 @@ public final class ProcessingDialog extends JDialog {
     }
 
     private static boolean detectCarInvoice(ExtractionPayload extraction) {
+        if (extraction.isVehicleInvoice() != null) {
+            return extraction.isVehicleInvoice();
+        }
+
         StringBuilder source = new StringBuilder();
         appendIfPresent(source, extraction.rawText());
         appendIfPresent(source, extraction.documentType());
         appendIfPresent(source, extraction.notes());
+        appendIfPresent(source, extraction.merchantName());
         appendIfPresent(source, extraction.supplierName());
+        appendIfPresent(source, extraction.merchantCity());
+        appendIfPresent(source, extraction.sellerName());
         appendIfPresent(source, extraction.customerName());
+        appendIfPresent(source, extraction.vehicleCondition());
+        appendIfPresent(source, extraction.vehicleConditionDetail());
+        appendIfPresent(source, extraction.vehicleBrand());
+        appendIfPresent(source, extraction.vehicleMake());
+        appendIfPresent(source, extraction.vehicleModel());
+        appendIfPresent(source, extraction.vehicleYear());
+        appendIfPresent(source, extraction.commercialYear());
+        appendIfPresent(source, extraction.vehicleType());
+        appendIfPresent(source, extraction.vehicleColor());
+        appendIfPresent(source, extraction.vehicleVin());
+        appendIfPresent(source, extraction.vehiclePlate());
+        appendIfPresent(source, extraction.engineNumber());
+        appendIfPresent(source, extraction.vehicleEngineNumber());
+        appendIfPresent(source, extraction.vehicleChassisNumber());
+        appendIfPresent(source, extraction.vehicleMileage());
+        appendIfPresent(source, extraction.fuelType());
         if (extraction.lineItems() != null) {
             extraction.lineItems().forEach(item -> appendIfPresent(source, item.description()));
         }
 
         String normalized = normalize(source.toString());
-        List<String> keywords = List.of(
-                "carro", "vehiculo", "automovil", "auto", "pickup", "camioneta",
-                "sedan", "suv", "vin", "chasis", "placa", "motor", "modelo", "marca", "vehicle", "car"
+        List<String> negativeKeywords = List.of(
+                "jamon", "queso", "arroz", "frijol", "pollo", "carne", "supermercado",
+                "abarrotes", "restaurante", "farmacia", "bebida", "pan", "huevos", "lacteos"
         );
-        for (String keyword : keywords) {
+        if (containsAny(normalized, negativeKeywords)) {
+            return false;
+        }
+
+        List<String> strongVehicleKeywords = List.of(
+                "vin", "chasis", "numero de motor", "motor", "placa", "vehiculo", "automovil",
+                "carro", "camioneta", "pickup", "sedan", "suv", "concesionario", "odometro", "kilometraje"
+        );
+        List<String> veryStrongIndicators = List.of("vin", "chasis", "numero de motor", "placa");
+        if (extraction.isInvoice() && containsAny(normalized, veryStrongIndicators)) {
+            return true;
+        }
+        int hits = 0;
+        for (String keyword : strongVehicleKeywords) {
             if (normalized.contains(keyword)) {
+                hits++;
+            }
+        }
+        return extraction.isInvoice() && hits >= 2;
+    }
+
+    private static boolean detectChileInvoice(ExtractionPayload extraction) {
+        if (extraction.isChileInvoice() != null) {
+            return extraction.isChileInvoice();
+        }
+        String countryCode = coalesce(null, extraction.countryCode());
+        if (countryCode != null && countryCode.equalsIgnoreCase(TARGET_COUNTRY_CODE)) {
+            return true;
+        }
+
+        StringBuilder source = new StringBuilder();
+        appendIfPresent(source, extraction.rawText());
+        appendIfPresent(source, extraction.notes());
+        appendIfPresent(source, extraction.merchantCity());
+        appendIfPresent(source, extraction.merchantName());
+        appendIfPresent(source, extraction.supplierName());
+        appendIfPresent(source, extraction.customerName());
+        appendIfPresent(source, extraction.currency());
+        appendIfPresent(source, extraction.supplierTaxId());
+        String normalized = normalize(source.toString());
+
+        List<String> chileKeywords = List.of(
+                "chile", "santiago", "valparaiso", "concepcion", "temuco",
+                "puerto montt", "vina del mar", "rut", "clp", "region metropolitana"
+        );
+        return containsAny(normalized, chileKeywords);
+    }
+
+    private static boolean containsAny(String text, List<String> terms) {
+        for (String term : terms) {
+            if (text.contains(term)) {
                 return true;
             }
         }
@@ -433,6 +772,18 @@ public final class ProcessingDialog extends JDialog {
                 ? "<b><span style='color:" + color + ";'>" + value + "</span></b>"
                 : "<span style='color:" + color + ";'>" + value + "</span>";
         return "<html><b>" + label + ":</b> " + valueHtml + "</html>";
+    }
+
+    private record DisplayContent(String prose, String json) {
+    }
+
+    private record Evaluation(
+            boolean isInvoice,
+            boolean isChileInvoice,
+            boolean isVehicleInvoice,
+            boolean isUsefulInvoice,
+            String countryCode
+    ) {
     }
 
     private void persistCurrentResults() {
