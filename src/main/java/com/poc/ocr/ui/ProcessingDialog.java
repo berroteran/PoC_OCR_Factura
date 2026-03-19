@@ -30,6 +30,7 @@ import java.awt.FlowLayout;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
@@ -107,6 +108,7 @@ public final class ProcessingDialog extends JDialog {
         jsonTextArea.setEditable(false);
         jsonTextArea.setLineWrap(false);
         jsonTextArea.setWrapStyleWord(false);
+        jsonTextArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane jsonScroll = new JScrollPane(jsonTextArea);
 
         JPanel textPanel = new JPanel(new GridLayout(1, 2, 8, 0));
