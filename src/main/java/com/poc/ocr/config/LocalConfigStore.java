@@ -41,9 +41,14 @@ public final class LocalConfigStore {
         properties.setProperty("output", config.outputFile().toString());
         properties.setProperty("max-images", Integer.toString(config.maxImages()));
         properties.setProperty("gemini_api_key", nullToEmpty(config.geminiApiKey()));
+        properties.setProperty("gemini_api_url", nullToEmpty(config.geminiApiUrl()));
         properties.setProperty("gemini_model", config.geminiModel());
         properties.setProperty("openai_api_key", nullToEmpty(config.openAiApiKey()));
+        properties.setProperty("openai_api_url", nullToEmpty(config.openAiApiUrl()));
         properties.setProperty("openai_model", config.openAiModel());
+        properties.setProperty("banco_api_key", nullToEmpty(config.bancoApiKey()));
+        properties.setProperty("banco_api_url", nullToEmpty(config.bancoApiUrl()));
+        properties.setProperty("banco_model", config.bancoModel());
 
         try (OutputStream out = Files.newOutputStream(CONFIG_PATH)) {
             properties.store(out, "Configuracion local OCR Factura");
@@ -56,4 +61,3 @@ public final class LocalConfigStore {
         return value == null ? "" : value;
     }
 }
-

@@ -26,13 +26,21 @@ public final class OpenAIOcrService implements OcrService {
     private final HttpClient httpClient;
     private final String apiKey;
     private final String model;
+    private final String endpointUrl;
+    private final String providerName;
 
     public OpenAIOcrService(String apiKey, String model) {
+        this(apiKey, model, RESPONSES_API, "openai");
+    }
+
+    public OpenAIOcrService(String apiKey, String model, String endpointUrl, String providerName) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
         this.apiKey = apiKey;
         this.model = model;
+        this.endpointUrl = endpointUrl;
+        this.providerName = providerName;
     }
 
     @Override
@@ -57,7 +65,7 @@ public final class OpenAIOcrService implements OcrService {
                 .put("image_url", dataUrl);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(RESPONSES_API))
+                .uri(URI.create(endpointUrl))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
@@ -66,8 +74,8 @@ public final class OpenAIOcrService implements OcrService {
 
         long startNs = System.nanoTime();
         int statusCode = -1;
-        LOGGER.info("OCR request start | service=openai | model=" + model
-                + " | endpoint=" + RESPONSES_API
+        LOGGER.info("OCR request start | service=" + providerName + " | model=" + model
+                + " | endpoint=" + endpointUrl
                 + " | file=" + imagePath.getFileName());
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -82,8 +90,8 @@ public final class OpenAIOcrService implements OcrService {
             return JsonUtils.parseExtractionPayload(modelText);
         } finally {
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
-            LOGGER.info("OCR request end | service=openai | model=" + model
-                    + " | endpoint=" + RESPONSES_API
+            LOGGER.info("OCR request end | service=" + providerName + " | model=" + model
+                    + " | endpoint=" + endpointUrl
                     + " | status=" + statusCode
                     + " | elapsed_ms=" + elapsedMs
                     + " | file=" + imagePath.getFileName());
@@ -92,7 +100,7 @@ public final class OpenAIOcrService implements OcrService {
 
     @Override
     public String providerName() {
-        return "openai";
+        return providerName;
     }
 
     @Override
