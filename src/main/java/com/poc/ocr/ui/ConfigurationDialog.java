@@ -25,8 +25,12 @@ import java.nio.file.Paths;
 public final class ConfigurationDialog extends JDialog {
     private final JTextField inputDirField;
     private final JComboBox<String> providerCombo;
+    private final JTextField geminiApiUrlField;
     private final JPasswordField geminiApiKeyField;
+    private final JTextField openAiApiUrlField;
     private final JPasswordField openAiApiKeyField;
+    private final JTextField bancoApiUrlField;
+    private final JPasswordField bancoApiKeyField;
     private final AppConfig baseConfig;
 
     private boolean saved;
@@ -53,6 +57,7 @@ public final class ConfigurationDialog extends JDialog {
 
         gbc.gridwidth = 1;
         gbc.gridy++;
+        gbc.gridx = 0;
         form.add(new JLabel("Carpeta de imagenes"), gbc);
 
         inputDirField = new JTextField(baseConfig.inputDir().toString(), 30);
@@ -70,11 +75,21 @@ public final class ConfigurationDialog extends JDialog {
         gbc.gridx = 0;
         form.add(new JLabel("Proveedor OCR"), gbc);
 
-        providerCombo = new JComboBox<>(new String[]{"gemini", "openai"});
+        providerCombo = new JComboBox<>(new String[]{"gemini", "openai", "banco"});
         providerCombo.setSelectedItem(baseConfig.provider() == null ? "gemini" : baseConfig.provider());
         gbc.gridx = 1;
         gbc.gridwidth = 2;
         form.add(providerCombo, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        form.add(new JLabel("Gemini API URL"), gbc);
+
+        geminiApiUrlField = new JTextField(valueOrEmpty(baseConfig.geminiApiUrl()), 30);
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(geminiApiUrlField, gbc);
 
         gbc.gridwidth = 1;
         gbc.gridy++;
@@ -89,12 +104,42 @@ public final class ConfigurationDialog extends JDialog {
         gbc.gridwidth = 1;
         gbc.gridy++;
         gbc.gridx = 0;
+        form.add(new JLabel("OpenAI API URL"), gbc);
+
+        openAiApiUrlField = new JTextField(valueOrEmpty(baseConfig.openAiApiUrl()), 30);
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(openAiApiUrlField, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
         form.add(new JLabel("OpenAI API Key"), gbc);
 
         openAiApiKeyField = new JPasswordField(valueOrEmpty(baseConfig.openAiApiKey()), 30);
         gbc.gridx = 1;
         gbc.gridwidth = 2;
         form.add(openAiApiKeyField, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        form.add(new JLabel("Banco API URL"), gbc);
+
+        bancoApiUrlField = new JTextField(valueOrEmpty(baseConfig.bancoApiUrl()), 30);
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(bancoApiUrlField, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        form.add(new JLabel("Banco API Key"), gbc);
+
+        bancoApiKeyField = new JPasswordField(valueOrEmpty(baseConfig.bancoApiKey()), 30);
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(bancoApiKeyField, gbc);
 
         add(form, BorderLayout.CENTER);
 
@@ -130,10 +175,14 @@ public final class ConfigurationDialog extends JDialog {
     }
 
     private void onSave() {
-        String provider = ((String) providerCombo.getSelectedItem());
+        String provider = (String) providerCombo.getSelectedItem();
         String inputDirValue = inputDirField.getText().trim();
         String geminiKey = new String(geminiApiKeyField.getPassword()).trim();
+        String geminiUrl = geminiApiUrlField.getText().trim();
         String openAiKey = new String(openAiApiKeyField.getPassword()).trim();
+        String openAiUrl = openAiApiUrlField.getText().trim();
+        String bancoKey = new String(bancoApiKeyField.getPassword()).trim();
+        String bancoUrl = bancoApiUrlField.getText().trim();
 
         if (AppConfig.isBlank(inputDirValue)) {
             JOptionPane.showMessageDialog(this, "Debes seleccionar una carpeta de imagenes.", "Validacion", JOptionPane.WARNING_MESSAGE);
@@ -141,7 +190,16 @@ public final class ConfigurationDialog extends JDialog {
         }
 
         Path inputDir = Paths.get(inputDirValue);
-        AppConfig candidate = baseConfig.withValues(provider, inputDir, geminiKey, openAiKey);
+        AppConfig candidate = baseConfig.withValues(
+                provider,
+                inputDir,
+                geminiKey,
+                geminiUrl,
+                openAiKey,
+                openAiUrl,
+                bancoKey,
+                bancoUrl
+        );
         if (!candidate.hasRequiredConfiguration()) {
             JOptionPane.showMessageDialog(
                     this,

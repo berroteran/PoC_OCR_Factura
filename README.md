@@ -3,7 +3,7 @@
 Proyecto en Java 17 (sin framework) para:
 
 1. Buscar imagenes en una carpeta.
-2. Enviarlas a un modelo multimodal (`gemini` u `openai`).
+2. Enviarlas a un modelo multimodal (`gemini`, `openai` o `banco`).
 3. Hacer OCR.
 4. Detectar si el documento es factura.
 5. Extraer campos clave en JSON.
@@ -20,12 +20,13 @@ Incluye UI en Swing para configuracion y procesamiento.
 
 Usa variables de entorno (ver `.env.example`):
 
-- `OCR_PROVIDER`: `gemini` (default) o `openai`
+- `OCR_PROVIDER`: `gemini` (default), `openai` o `banco`
 - `INPUT_DIR`: carpeta de imagenes (default `input`)
 - `OUTPUT_FILE`: ruta del JSON de salida (default `output/results.json`)
 - `MAX_IMAGES`: limite de imagenes a procesar (default `0` = todas)
-- `GEMINI_API_KEY`, `GEMINI_MODEL`
-- `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `GEMINI_API_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`
+- `OPENAI_API_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `BANCO_API_URL`, `BANCO_API_KEY`, `BANCO_MODEL`
 
 ## Ejecucion
 
@@ -42,9 +43,10 @@ mvn clean compile exec:java
 Si faltan datos (carpeta o API key segun proveedor), se abre una ventana Swing para:
 
 - Seleccionar carpeta de imagenes.
-- Elegir proveedor (`gemini` por defecto).
-- Ingresar `Gemini API Key`.
-- Ingresar `OpenAI API Key`.
+- Elegir proveedor (`gemini`, `openai`, `banco`).
+- Configurar por proveedor:
+  - API URL
+  - API KEY
 
 La configuracion se guarda localmente en `config.properties`.
 
@@ -100,4 +102,4 @@ Campos extraidos principales:
 
 - Este PoC usa prompting para extraer JSON; para produccion conviene agregar validacion y reintentos.
 - La precision depende de calidad de imagen, idioma y formato de factura.
-- Extensiones soportadas: `png`, `jpg`, `jpeg`, `webp`, `bmp`, `tif`, `tiff`.
+- Extensiones soportadas: `png`, `jpg`, `jpeg`, `webp`, `bmp`, `tif`, `tiff`, `pdf`.

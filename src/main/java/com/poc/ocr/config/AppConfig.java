@@ -14,11 +14,19 @@ public record AppConfig(
         Path inputDir,
         Path outputFile,
         String geminiApiKey,
+        String geminiApiUrl,
         String geminiModel,
         String openAiApiKey,
+        String openAiApiUrl,
         String openAiModel,
+        String bancoApiKey,
+        String bancoApiUrl,
+        String bancoModel,
         int maxImages
 ) {
+    private static final String DEFAULT_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+    private static final String DEFAULT_OPENAI_API_URL = "https://api.openai.com/v1/responses";
+
     public static AppConfig fromEnvironment(String[] args) {
         return fromSources(args, Map.of());
     }
@@ -32,19 +40,30 @@ public record AppConfig(
         int maxImages = parseIntOrDefault(getValue(cli, storedValues, "max-images", "MAX_IMAGES", "0"), 0);
 
         String geminiApiKey = envOrStored("GEMINI_API_KEY", storedValues, "gemini_api_key");
+        String geminiApiUrl = envOrStoredDefault("GEMINI_API_URL", storedValues, "gemini_api_url", DEFAULT_GEMINI_API_URL);
         String geminiModel = envOrStoredDefault("GEMINI_MODEL", storedValues, "gemini_model", "gemini-2.0-flash");
 
         String openAiApiKey = envOrStored("OPENAI_API_KEY", storedValues, "openai_api_key");
+        String openAiApiUrl = envOrStoredDefault("OPENAI_API_URL", storedValues, "openai_api_url", DEFAULT_OPENAI_API_URL);
         String openAiModel = envOrStoredDefault("OPENAI_MODEL", storedValues, "openai_model", "gpt-4.1-mini");
+
+        String bancoApiKey = envOrStored("BANCO_API_KEY", storedValues, "banco_api_key");
+        String bancoApiUrl = envOrStoredDefault("BANCO_API_URL", storedValues, "banco_api_url", "");
+        String bancoModel = envOrStoredDefault("BANCO_MODEL", storedValues, "banco_model", "banco-ocr-v1");
 
         return new AppConfig(
                 provider,
                 inputDir,
                 outputFile,
                 geminiApiKey,
+                geminiApiUrl,
                 geminiModel,
                 openAiApiKey,
+                openAiApiUrl,
                 openAiModel,
+                bancoApiKey,
+                bancoApiUrl,
+                bancoModel,
                 maxImages
         );
     }
@@ -52,8 +71,8 @@ public record AppConfig(
     public List<String> validationErrors() {
         List<String> errors = new ArrayList<>();
 
-        if (!provider.equals("gemini") && !provider.equals("openai")) {
-            errors.add("El proveedor debe ser 'gemini' u 'openai'.");
+        if (!provider.equals("gemini") && !provider.equals("openai") && !provider.equals("banco")) {
+            errors.add("El proveedor debe ser 'gemini', 'openai' o 'banco'.");
         }
         if (maxImages < 0) {
             errors.add("MAX_IMAGES no puede ser negativo.");
@@ -63,11 +82,30 @@ public record AppConfig(
         } else if (!Files.exists(inputDir) || !Files.isDirectory(inputDir)) {
             errors.add("La carpeta de entrada no existe o no es valida: " + inputDir.toAbsolutePath());
         }
-        if (provider.equals("gemini") && isBlank(geminiApiKey)) {
-            errors.add("Falta la API key de Gemini.");
+
+        if (provider.equals("gemini")) {
+            if (isBlank(geminiApiKey)) {
+                errors.add("Falta la API key de Gemini.");
+            }
+            if (isBlank(geminiApiUrl)) {
+                errors.add("Falta el API URL de Gemini.");
+            }
         }
-        if (provider.equals("openai") && isBlank(openAiApiKey)) {
-            errors.add("Falta la API key de OpenAI.");
+        if (provider.equals("openai")) {
+            if (isBlank(openAiApiKey)) {
+                errors.add("Falta la API key de OpenAI.");
+            }
+            if (isBlank(openAiApiUrl)) {
+                errors.add("Falta el API URL de OpenAI.");
+            }
+        }
+        if (provider.equals("banco")) {
+            if (isBlank(bancoApiKey)) {
+                errors.add("Falta la API key de Banco.");
+            }
+            if (isBlank(bancoApiUrl)) {
+                errors.add("Falta el API URL de Banco.");
+            }
         }
 
         return errors;
@@ -77,27 +115,29 @@ public record AppConfig(
         return validationErrors().isEmpty();
     }
 
-    public void validateOrThrow() {
-        List<String> errors = validationErrors();
-        if (!errors.isEmpty()) {
-            throw new IllegalArgumentException(String.join(" | ", errors));
-        }
-    }
-
     public AppConfig withValues(
             String provider,
             Path inputDir,
             String geminiApiKey,
-            String openAiApiKey
+            String geminiApiUrl,
+            String openAiApiKey,
+            String openAiApiUrl,
+            String bancoApiKey,
+            String bancoApiUrl
     ) {
         return new AppConfig(
                 provider,
                 inputDir,
                 outputFile,
                 geminiApiKey,
+                geminiApiUrl,
                 geminiModel,
                 openAiApiKey,
+                openAiApiUrl,
                 openAiModel,
+                bancoApiKey,
+                bancoApiUrl,
+                bancoModel,
                 maxImages
         );
     }
@@ -176,3 +216,4 @@ public record AppConfig(
         }
     }
 }
+

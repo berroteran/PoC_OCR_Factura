@@ -28,13 +28,19 @@ public final class GeminiOcrService implements OcrService {
     private final HttpClient httpClient;
     private final String apiKey;
     private final String model;
+    private final String apiBaseUrl;
 
     public GeminiOcrService(String apiKey, String model) {
+        this(apiKey, model, API_BASE);
+    }
+
+    public GeminiOcrService(String apiKey, String model, String apiBaseUrl) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
         this.apiKey = apiKey;
         this.model = model;
+        this.apiBaseUrl = apiBaseUrl;
     }
 
     @Override
@@ -54,8 +60,8 @@ public final class GeminiOcrService implements OcrService {
         ObjectNode generationConfig = payload.putObject("generationConfig");
         generationConfig.put("responseMimeType", "application/json");
 
-        String endpointWithoutKey = API_BASE + model + ":generateContent";
-        String endpoint = endpointWithoutKey + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+        String endpointWithoutKey = buildEndpointWithoutKey(apiBaseUrl, model);
+        String endpoint = appendApiKey(endpointWithoutKey, apiKey);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(120))
@@ -87,6 +93,31 @@ public final class GeminiOcrService implements OcrService {
                     + " | elapsed_ms=" + elapsedMs
                     + " | file=" + imagePath.getFileName());
         }
+    }
+
+    private static String buildEndpointWithoutKey(String apiBaseUrl, String model) {
+        if (apiBaseUrl == null || apiBaseUrl.isBlank()) {
+            return API_BASE + model + ":generateContent";
+        }
+        String trimmed = apiBaseUrl.trim();
+        if (trimmed.contains("{model}")) {
+            return trimmed.replace("{model}", model);
+        }
+        if (trimmed.endsWith(":generateContent")) {
+            return trimmed;
+        }
+        if (trimmed.endsWith("/")) {
+            return trimmed + model + ":generateContent";
+        }
+        if (trimmed.endsWith("/models")) {
+            return trimmed + "/" + model + ":generateContent";
+        }
+        return trimmed;
+    }
+
+    private static String appendApiKey(String endpointWithoutKey, String apiKey) {
+        String separator = endpointWithoutKey.contains("?") ? "&" : "?";
+        return endpointWithoutKey + separator + "key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
     }
 
     @Override

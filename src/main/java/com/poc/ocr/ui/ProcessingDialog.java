@@ -816,8 +816,19 @@ public final class ProcessingDialog extends JDialog {
 
     private static OcrService buildService(AppConfig config) {
         return switch (config.provider().toLowerCase()) {
-            case "gemini" -> new GeminiOcrService(config.geminiApiKey(), config.geminiModel());
-            case "openai" -> new OpenAIOcrService(config.openAiApiKey(), config.openAiModel());
+            case "gemini" -> new GeminiOcrService(config.geminiApiKey(), config.geminiModel(), config.geminiApiUrl());
+            case "openai" -> new OpenAIOcrService(
+                    config.openAiApiKey(),
+                    config.openAiModel(),
+                    config.openAiApiUrl(),
+                    "openai"
+            );
+            case "banco" -> new OpenAIOcrService(
+                    config.bancoApiKey(),
+                    config.bancoModel(),
+                    config.bancoApiUrl(),
+                    "banco"
+            );
             default -> throw new IllegalArgumentException("Proveedor no soportado: " + config.provider());
         };
     }
