@@ -30,6 +30,9 @@ public final class PromptFactory {
                 - confidence debe ser un numero entre 0 y 1.
                 - vehicle_condition debe ser NEW, USED, SEMI_NEW o null.
                 - Si vehicle_condition=NEW y no hay placa visible, vehicle_plate debe ser "SIN_PLACA" o "NUEVO".
+                - Debes incluir en el JSON el modelo real usado para el analisis en analysis_model.
+                - Debes incluir en el JSON la version real del modelo usado en analysis_model_version.
+                - Si no puedes determinar modelo/version exactos, usa null en esos campos (no inventes).
 
                 Prompt negativo (estricto):
                 - Si el documento trata principalmente de alimentos, supermercado, carniceria, restaurante, farmacia, ferreteria o consumo general
@@ -39,6 +42,8 @@ public final class PromptFactory {
 
                 JSON requerido:
                 {
+                  "analysis_model": "string|null",
+                  "analysis_model_version": "string|null",
                   "document_type": "invoice|receipt|other",
                   "is_invoice": true,
                   "invoice_probability": 0.0,

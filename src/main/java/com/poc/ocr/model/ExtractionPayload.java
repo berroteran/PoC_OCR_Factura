@@ -7,6 +7,8 @@ import java.math.BigDecimal;
 import java.util.List;
 
 public record ExtractionPayload(
+        @JsonProperty("analysis_model") String analysisModel,
+        @JsonProperty("analysis_model_version") String analysisModelVersion,
         @JsonProperty("is_invoice") boolean isInvoice,
         @JsonProperty("invoice_probability") Double invoiceProbability,
         @JsonProperty("country_code") String countryCode,
