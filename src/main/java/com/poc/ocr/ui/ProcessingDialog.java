@@ -4,6 +4,7 @@ import com.poc.ocr.config.AppConfig;
 import com.poc.ocr.model.DocumentProcessingResult;
 import com.poc.ocr.model.ExtractionPayload;
 import com.poc.ocr.service.DocumentInputPreparer;
+import com.poc.ocr.service.ExecutionAuditWriter;
 import com.poc.ocr.service.GeminiOcrService;
 import com.poc.ocr.service.OcrService;
 import com.poc.ocr.service.OpenAIOcrService;
@@ -36,6 +37,7 @@ import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.Normalizer;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -189,6 +191,9 @@ public final class ProcessingDialog extends JDialog {
                                 document.sourcePath(),
                                 "local-pdf-check",
                                 "pdf-text-only",
+                                null,
+                                null,
+                                null,
                                 OffsetDateTime.now(),
                                 imageMetadata.sizeBytes(),
                                 imageMetadata.width(),
@@ -201,10 +206,17 @@ public final class ProcessingDialog extends JDialog {
                     }
 
                     ExtractionPayload extraction = ocrService.analyzeImage(document.imagePath());
+                    String requestedModel = ocrService.modelName();
+                    String requestedModelVersion = null;
+                    String reportedModel = extraction.analysisModel();
+                    String reportedModelVersion = extraction.analysisModelVersion();
                     return DocumentProcessingResult.success(
                             document.sourcePath(),
                             ocrService.providerName(),
-                            ocrService.modelName(),
+                            requestedModel,
+                            requestedModelVersion,
+                            reportedModel,
+                            reportedModelVersion,
                             OffsetDateTime.now(),
                             imageMetadata.sizeBytes(),
                             imageMetadata.width(),
@@ -217,6 +229,9 @@ public final class ProcessingDialog extends JDialog {
                             document.sourcePath(),
                             ocrService.providerName(),
                             ocrService.modelName(),
+                            null,
+                            null,
+                            null,
                             OffsetDateTime.now(),
                             imageMetadata.sizeBytes(),
                             imageMetadata.width(),
@@ -243,6 +258,7 @@ public final class ProcessingDialog extends JDialog {
                     statusLabel.setText(result.success() ? "Completado" : "Error en OCR/API");
 
                     persistCurrentResults();
+                    appendExecutionAudit(document, result);
                 } catch (Exception e) {
                     proseTextArea.setText("Error inesperado al finalizar: " + e.getMessage());
                     jsonTextArea.setText("{\"error\":\"Error inesperado al finalizar\"}");
@@ -366,8 +382,10 @@ public final class ProcessingDialog extends JDialog {
     }
 
     private static void appendResultMetadata(ObjectNode node, DocumentProcessingResult result) {
-        node.put("analysis_model", coalesce("unknown", result.model()));
-        node.put("analysis_model_version", coalesce("unknown", result.modelVersion()));
+        putNullableString(node, "requested_model", result.requestedModel());
+        putNullableString(node, "requested_model_version", result.requestedModelVersion());
+        putNullableString(node, "analysis_model", result.model());
+        putNullableString(node, "analysis_model_version", result.modelVersion());
         Long imageSizeBytes = result.imageSizeBytes();
         putNullableLong(node, "image_size_bytes", imageSizeBytes);
         putNullableDouble(node, "image_size_kb", imageSizeBytes == null ? null : round(imageSizeBytes / 1024d, 2));
@@ -379,6 +397,14 @@ public final class ProcessingDialog extends JDialog {
 
     private static void putNullableLong(ObjectNode node, String fieldName, Long value) {
         if (value == null) {
+            node.putNull(fieldName);
+            return;
+        }
+        node.put(fieldName, value);
+    }
+
+    private static void putNullableString(ObjectNode node, String fieldName, String value) {
+        if (value == null || value.isBlank()) {
             node.putNull(fieldName);
             return;
         }
@@ -858,6 +884,162 @@ public final class ProcessingDialog extends JDialog {
 
     private static long elapsedMs(long startedNs) {
         return (System.nanoTime() - startedNs) / 1_000_000;
+    }
+
+    private void appendExecutionAudit(DocumentInputPreparer.PreparedDocument document, DocumentProcessingResult result) {
+        ExtractionPayload extraction = result.extraction();
+        Evaluation evaluation = extraction == null ? null : evaluateExtraction(extraction);
+
+        double invoiceCertainty = resolveInvoiceCertaintyPercent(extraction, evaluation);
+        double vehicleCertainty = resolveVehicleCertaintyPercent(extraction, evaluation);
+        double chileCertainty = resolveChileCertaintyPercent(extraction, evaluation);
+        double dataQuality = resolveDataQualityPercent(extraction, evaluation);
+
+        Path auditFile = resolveAuditFilePath(config.outputFile());
+        Path analyzedPath = document.imagePath() != null ? document.imagePath() : document.sourcePath();
+
+        try {
+            ExecutionAuditWriter.append(
+                    auditFile,
+                    document.sourcePath(),
+                    analyzedPath,
+                    result,
+                    invoiceCertainty,
+                    vehicleCertainty,
+                    chileCertainty,
+                    dataQuality
+            );
+        } catch (Exception e) {
+            LOGGER.warning("No se pudo guardar registro de ejecucion: " + e.getMessage());
+        }
+    }
+
+    private static Path resolveAuditFilePath(Path outputFile) {
+        Path parent = outputFile.toAbsolutePath().getParent();
+        if (parent == null) {
+            return Paths.get("output", "execution_audit.csv");
+        }
+        return parent.resolve("execution_audit.csv");
+    }
+
+    private static double resolveInvoiceCertaintyPercent(ExtractionPayload extraction, Evaluation evaluation) {
+        if (extraction != null) {
+            Double fromInvoiceProb = normalizePercent(extraction.invoiceProbability());
+            if (fromInvoiceProb != null) {
+                return fromInvoiceProb;
+            }
+            Double fromConfidence = normalizePercent(extraction.confidence());
+            if (fromConfidence != null) {
+                return fromConfidence;
+            }
+        }
+        if (evaluation != null) {
+            return evaluation.isInvoice() ? 100d : 0d;
+        }
+        return 0d;
+    }
+
+    private static double resolveVehicleCertaintyPercent(ExtractionPayload extraction, Evaluation evaluation) {
+        if (extraction != null) {
+            Double fromVehicleProb = normalizePercent(extraction.vehicleInvoiceProbability());
+            if (fromVehicleProb != null) {
+                return fromVehicleProb;
+            }
+            if (extraction.isVehicleInvoice() != null) {
+                return extraction.isVehicleInvoice() ? 100d : 0d;
+            }
+        }
+        if (evaluation != null) {
+            return evaluation.isVehicleInvoice() ? 100d : 0d;
+        }
+        return 0d;
+    }
+
+    private static double resolveChileCertaintyPercent(ExtractionPayload extraction, Evaluation evaluation) {
+        if (extraction != null) {
+            Double fromChileProb = normalizePercent(extraction.chileInvoiceProbability());
+            if (fromChileProb != null) {
+                return fromChileProb;
+            }
+            if (extraction.isChileInvoice() != null) {
+                return extraction.isChileInvoice() ? 100d : 0d;
+            }
+        }
+        if (evaluation != null) {
+            return evaluation.isChileInvoice() ? 100d : 0d;
+        }
+        return 0d;
+    }
+
+    private static double resolveDataQualityPercent(ExtractionPayload extraction, Evaluation evaluation) {
+        if (extraction == null) {
+            return 0d;
+        }
+        int totalFields = 10;
+        int presentFields = 0;
+
+        if (!isBlank(extraction.customerName())) {
+            presentFields++;
+        }
+        if (!isBlank(coalesce(null, extraction.purchaseDate(), extraction.invoiceDate()))) {
+            presentFields++;
+        }
+        if (!isBlank(extraction.invoiceNumber())) {
+            presentFields++;
+        }
+        if (!isBlank(coalesce(null, extraction.merchantName(), extraction.supplierName()))) {
+            presentFields++;
+        }
+        if (firstNonNull(extraction.totalPurchase(), extraction.total()) != null) {
+            presentFields++;
+        }
+        if (!isBlank(coalesce(null, extraction.vehicleBrand(), extraction.vehicleMake()))) {
+            presentFields++;
+        }
+        if (!isBlank(extraction.vehicleModel())) {
+            presentFields++;
+        }
+        if (!isBlank(extraction.vehicleYear())) {
+            presentFields++;
+        }
+        if (!isBlank(extraction.vehicleVin())) {
+            presentFields++;
+        }
+        if (!isBlank(coalesce(null, extraction.engineNumber(), extraction.vehicleEngineNumber(), extraction.vehicleChassisNumber()))) {
+            presentFields++;
+        }
+
+        double completeness = (presentFields * 100d) / totalFields;
+        if (evaluation != null && !evaluation.isUsefulInvoice()) {
+            completeness = Math.min(completeness, 60d);
+        }
+        return roundToTwoDecimals(clampPercent(completeness));
+    }
+
+    private static Double normalizePercent(Double value) {
+        if (value == null) {
+            return null;
+        }
+        double percent = value <= 1d ? value * 100d : value;
+        return roundToTwoDecimals(clampPercent(percent));
+    }
+
+    private static double clampPercent(double value) {
+        if (value < 0d) {
+            return 0d;
+        }
+        if (value > 100d) {
+            return 100d;
+        }
+        return value;
+    }
+
+    private static double roundToTwoDecimals(double value) {
+        return Math.round(value * 100d) / 100d;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static void appendIfPresent(StringBuilder sb, String value) {

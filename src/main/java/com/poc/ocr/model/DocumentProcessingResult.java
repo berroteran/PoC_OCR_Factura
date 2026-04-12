@@ -9,6 +9,8 @@ public record DocumentProcessingResult(
         String fileName,
         String filePath,
         String provider,
+        String requestedModel,
+        String requestedModelVersion,
         String model,
         String modelVersion,
         String processedAt,
@@ -23,7 +25,10 @@ public record DocumentProcessingResult(
     public static DocumentProcessingResult success(
             Path path,
             String provider,
-            String model,
+            String requestedModel,
+            String requestedModelVersion,
+            String reportedModel,
+            String reportedModelVersion,
             OffsetDateTime processedAt,
             Long imageSizeBytes,
             Integer imageWidth,
@@ -35,8 +40,10 @@ public record DocumentProcessingResult(
                 path.getFileName().toString(),
                 path.toAbsolutePath().toString(),
                 provider,
-                model,
-                resolveModelVersion(model),
+                requestedModel,
+                normalizeRequestedModelVersion(requestedModelVersion, requestedModel),
+                normalizeNullable(reportedModel),
+                normalizeNullable(reportedModelVersion),
                 processedAt.toString(),
                 imageSizeBytes,
                 imageWidth,
@@ -51,7 +58,10 @@ public record DocumentProcessingResult(
     public static DocumentProcessingResult failure(
             Path path,
             String provider,
-            String model,
+            String requestedModel,
+            String requestedModelVersion,
+            String reportedModel,
+            String reportedModelVersion,
             OffsetDateTime processedAt,
             Long imageSizeBytes,
             Integer imageWidth,
@@ -63,8 +73,10 @@ public record DocumentProcessingResult(
                 path.getFileName().toString(),
                 path.toAbsolutePath().toString(),
                 provider,
-                model,
-                resolveModelVersion(model),
+                requestedModel,
+                normalizeRequestedModelVersion(requestedModelVersion, requestedModel),
+                normalizeNullable(reportedModel),
+                normalizeNullable(reportedModelVersion),
                 processedAt.toString(),
                 imageSizeBytes,
                 imageWidth,
@@ -79,7 +91,22 @@ public record DocumentProcessingResult(
     private static final Pattern VERSION_WITH_V = Pattern.compile("(?i)\\bv(\\d+(?:\\.\\d+)*)\\b");
     private static final Pattern VERSION_DECIMAL = Pattern.compile("(\\d+(?:\\.\\d+)*)");
 
-    private static String resolveModelVersion(String model) {
+    private static String normalizeRequestedModelVersion(String explicitVersion, String requestedModel) {
+        if (explicitVersion != null && !explicitVersion.isBlank()) {
+            return explicitVersion.trim();
+        }
+        return resolveModelVersionFromModelName(requestedModel);
+    }
+
+    private static String normalizeNullable(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String resolveModelVersionFromModelName(String model) {
         if (model == null || model.isBlank()) {
             return "unknown";
         }
