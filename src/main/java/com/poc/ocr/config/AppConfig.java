@@ -41,7 +41,7 @@ public record AppConfig(
 
         String geminiApiKey = envOrStored("GEMINI_API_KEY", storedValues, "gemini_api_key");
         String geminiApiUrl = envOrStoredDefault("GEMINI_API_URL", storedValues, "gemini_api_url", DEFAULT_GEMINI_API_URL);
-        String geminiModel = envOrStoredDefault("GEMINI_MODEL", storedValues, "gemini_model", "gemini-2.0-flash");
+        String geminiModel = envOrStoredDefault("GEMINI_MODEL", storedValues, "gemini_model", "gemini-3.1-flash-lite-preview");
 
         String openAiApiKey = envOrStored("OPENAI_API_KEY", storedValues, "openai_api_key");
         String openAiApiUrl = envOrStoredDefault("OPENAI_API_URL", storedValues, "openai_api_url", DEFAULT_OPENAI_API_URL);
@@ -120,10 +120,13 @@ public record AppConfig(
             Path inputDir,
             String geminiApiKey,
             String geminiApiUrl,
+            String geminiModel,
             String openAiApiKey,
             String openAiApiUrl,
+            String openAiModel,
             String bancoApiKey,
-            String bancoApiUrl
+            String bancoApiUrl,
+            String bancoModel
     ) {
         return new AppConfig(
                 provider,
@@ -216,4 +219,3 @@ public record AppConfig(
         }
     }
 }
-

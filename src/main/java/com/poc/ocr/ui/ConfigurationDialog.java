@@ -23,13 +23,39 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public final class ConfigurationDialog extends JDialog {
+    private static final String[] GEMINI_MODELS = {
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite"
+    };
+    private static final String[] OPENAI_MODELS = {
+            "gpt-4.1-mini",
+            "gpt-4.1",
+            "gpt-4.1-nano",
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-5-mini",
+            "gpt-5",
+            "gpt-5-nano"
+    };
+    private static final String[] BANCO_MODELS = {
+            "banco-ocr-v1",
+            "banco-ocr-v2"
+    };
+
     private final JTextField inputDirField;
     private final JComboBox<String> providerCombo;
     private final JTextField geminiApiUrlField;
+    private final JComboBox<String> geminiModelCombo;
     private final JPasswordField geminiApiKeyField;
     private final JTextField openAiApiUrlField;
+    private final JComboBox<String> openAiModelCombo;
     private final JPasswordField openAiApiKeyField;
     private final JTextField bancoApiUrlField;
+    private final JComboBox<String> bancoModelCombo;
     private final JPasswordField bancoApiKeyField;
     private final AppConfig baseConfig;
 
@@ -94,6 +120,16 @@ public final class ConfigurationDialog extends JDialog {
         gbc.gridwidth = 1;
         gbc.gridy++;
         gbc.gridx = 0;
+        form.add(new JLabel("Gemini Modelo"), gbc);
+
+        geminiModelCombo = createModelCombo(GEMINI_MODELS, baseConfig.geminiModel());
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(geminiModelCombo, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
         form.add(new JLabel("Gemini API Key"), gbc);
 
         geminiApiKeyField = new JPasswordField(valueOrEmpty(baseConfig.geminiApiKey()), 30);
@@ -114,6 +150,16 @@ public final class ConfigurationDialog extends JDialog {
         gbc.gridwidth = 1;
         gbc.gridy++;
         gbc.gridx = 0;
+        form.add(new JLabel("OpenAI Modelo"), gbc);
+
+        openAiModelCombo = createModelCombo(OPENAI_MODELS, baseConfig.openAiModel());
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(openAiModelCombo, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
         form.add(new JLabel("OpenAI API Key"), gbc);
 
         openAiApiKeyField = new JPasswordField(valueOrEmpty(baseConfig.openAiApiKey()), 30);
@@ -130,6 +176,16 @@ public final class ConfigurationDialog extends JDialog {
         gbc.gridx = 1;
         gbc.gridwidth = 2;
         form.add(bancoApiUrlField, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        form.add(new JLabel("Banco Modelo"), gbc);
+
+        bancoModelCombo = createModelCombo(BANCO_MODELS, baseConfig.bancoModel());
+        gbc.gridx = 1;
+        gbc.gridwidth = 2;
+        form.add(bancoModelCombo, gbc);
 
         gbc.gridwidth = 1;
         gbc.gridy++;
@@ -179,10 +235,13 @@ public final class ConfigurationDialog extends JDialog {
         String inputDirValue = inputDirField.getText().trim();
         String geminiKey = new String(geminiApiKeyField.getPassword()).trim();
         String geminiUrl = geminiApiUrlField.getText().trim();
+        String geminiModel = selectedComboValue(geminiModelCombo, "gemini-3.1-flash-lite-preview");
         String openAiKey = new String(openAiApiKeyField.getPassword()).trim();
         String openAiUrl = openAiApiUrlField.getText().trim();
+        String openAiModel = selectedComboValue(openAiModelCombo, "gpt-4.1-mini");
         String bancoKey = new String(bancoApiKeyField.getPassword()).trim();
         String bancoUrl = bancoApiUrlField.getText().trim();
+        String bancoModel = selectedComboValue(bancoModelCombo, "banco-ocr-v1");
 
         if (AppConfig.isBlank(inputDirValue)) {
             JOptionPane.showMessageDialog(this, "Debes seleccionar una carpeta de imagenes.", "Validacion", JOptionPane.WARNING_MESSAGE);
@@ -195,10 +254,13 @@ public final class ConfigurationDialog extends JDialog {
                 inputDir,
                 geminiKey,
                 geminiUrl,
+                geminiModel,
                 openAiKey,
                 openAiUrl,
+                openAiModel,
                 bancoKey,
-                bancoUrl
+                bancoUrl,
+                bancoModel
         );
         if (!candidate.hasRequiredConfiguration()) {
             JOptionPane.showMessageDialog(
@@ -218,5 +280,22 @@ public final class ConfigurationDialog extends JDialog {
     private static String valueOrEmpty(String value) {
         return value == null ? "" : value;
     }
-}
 
+    private static JComboBox<String> createModelCombo(String[] values, String selectedValue) {
+        JComboBox<String> combo = new JComboBox<>(values);
+        combo.setEditable(true);
+        if (!AppConfig.isBlank(selectedValue)) {
+            combo.setSelectedItem(selectedValue.trim());
+        }
+        return combo;
+    }
+
+    private static String selectedComboValue(JComboBox<String> combo, String fallback) {
+        Object value = combo.getSelectedItem();
+        if (value == null) {
+            return fallback;
+        }
+        String text = value.toString().trim();
+        return text.isEmpty() ? fallback : text;
+    }
+}
