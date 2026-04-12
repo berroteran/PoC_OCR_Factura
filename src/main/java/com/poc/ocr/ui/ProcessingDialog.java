@@ -34,6 +34,7 @@ import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.Normalizer;
 import java.time.OffsetDateTime;
@@ -180,6 +181,8 @@ public final class ProcessingDialog extends JDialog {
         currentWorker = new SwingWorker<>() {
             @Override
             protected DocumentProcessingResult doInBackground() {
+                ImageMetadata imageMetadata = readImageMetadata(document.imagePath());
+                long startedNs = System.nanoTime();
                 try {
                     if (document.imagePath() == null) {
                         return DocumentProcessingResult.failure(
@@ -187,6 +190,10 @@ public final class ProcessingDialog extends JDialog {
                                 "local-pdf-check",
                                 "pdf-text-only",
                                 OffsetDateTime.now(),
+                                imageMetadata.sizeBytes(),
+                                imageMetadata.width(),
+                                imageMetadata.height(),
+                                elapsedMs(startedNs),
                                 document.suspicionReason() == null
                                         ? "PDF sin imagenes extraibles; sospechoso."
                                         : document.suspicionReason()
@@ -199,6 +206,10 @@ public final class ProcessingDialog extends JDialog {
                             ocrService.providerName(),
                             ocrService.modelName(),
                             OffsetDateTime.now(),
+                            imageMetadata.sizeBytes(),
+                            imageMetadata.width(),
+                            imageMetadata.height(),
+                            elapsedMs(startedNs),
                             extraction
                     );
                 } catch (Exception e) {
@@ -207,6 +218,10 @@ public final class ProcessingDialog extends JDialog {
                             ocrService.providerName(),
                             ocrService.modelName(),
                             OffsetDateTime.now(),
+                            imageMetadata.sizeBytes(),
+                            imageMetadata.width(),
+                            imageMetadata.height(),
+                            elapsedMs(startedNs),
                             e.getMessage()
                     );
                 }
@@ -319,6 +334,7 @@ public final class ProcessingDialog extends JDialog {
         try {
             if (result.success() && result.extraction() != null) {
                 ObjectNode node = JSON_MAPPER.valueToTree(result.extraction());
+                appendResultMetadata(node, result);
                 if (evaluation != null) {
                     node.put("is_invoice", evaluation.isInvoice());
                     node.put("is_chile_invoice", evaluation.isChileInvoice());
@@ -341,11 +357,37 @@ public final class ProcessingDialog extends JDialog {
             errorNode.put("is_useful_invoice", false);
             errorNode.put("file_name", result.fileName());
             errorNode.put("file_path", result.filePath());
+            appendResultMetadata(errorNode, result);
             errorNode.put("error", coalesce("Error no especificado", result.error()));
             return JSON_MAPPER.writeValueAsString(errorNode);
         } catch (Exception e) {
             return "{\"error\":\"No se pudo serializar resultado a JSON: " + sanitizeJson(e.getMessage()) + "\"}";
         }
+    }
+
+    private static void appendResultMetadata(ObjectNode node, DocumentProcessingResult result) {
+        node.put("analysis_model", coalesce("unknown", result.model()));
+        node.put("analysis_model_version", coalesce("unknown", result.modelVersion()));
+        putNullableLong(node, "image_size_bytes", result.imageSizeBytes());
+        putNullableInt(node, "image_width", result.imageWidth());
+        putNullableInt(node, "image_height", result.imageHeight());
+        putNullableLong(node, "processing_time_ms", result.processingTimeMs());
+    }
+
+    private static void putNullableLong(ObjectNode node, String fieldName, Long value) {
+        if (value == null) {
+            node.putNull(fieldName);
+            return;
+        }
+        node.put(fieldName, value);
+    }
+
+    private static void putNullableInt(ObjectNode node, String fieldName, Integer value) {
+        if (value == null) {
+            node.putNull(fieldName);
+            return;
+        }
+        node.put(fieldName, value);
     }
 
     private static String sanitizeJson(String value) {
@@ -773,6 +815,35 @@ public final class ProcessingDialog extends JDialog {
         return normalized.toLowerCase();
     }
 
+    private static ImageMetadata readImageMetadata(Path imagePath) {
+        if (imagePath == null) {
+            return new ImageMetadata(null, null, null);
+        }
+        Long sizeBytes = null;
+        Integer width = null;
+        Integer height = null;
+
+        try {
+            sizeBytes = Files.size(imagePath);
+        } catch (Exception ignored) {
+            // Si no se puede leer el tamanio del archivo, mantenemos null.
+        }
+        try {
+            BufferedImage image = ImageIO.read(imagePath.toFile());
+            if (image != null) {
+                width = image.getWidth();
+                height = image.getHeight();
+            }
+        } catch (Exception ignored) {
+            // Si no se puede decodificar la imagen, mantenemos dimensiones en null.
+        }
+        return new ImageMetadata(sizeBytes, width, height);
+    }
+
+    private static long elapsedMs(long startedNs) {
+        return (System.nanoTime() - startedNs) / 1_000_000;
+    }
+
     private static void appendIfPresent(StringBuilder sb, String value) {
         if (value != null && !value.isBlank()) {
             sb.append(' ').append(value);
@@ -795,6 +866,13 @@ public final class ProcessingDialog extends JDialog {
             boolean isVehicleInvoice,
             boolean isUsefulInvoice,
             String countryCode
+    ) {
+    }
+
+    private record ImageMetadata(
+            Long sizeBytes,
+            Integer width,
+            Integer height
     ) {
     }
 

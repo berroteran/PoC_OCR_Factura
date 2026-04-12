@@ -46,9 +46,16 @@ Si faltan datos (carpeta o API key segun proveedor), se abre una ventana Swing p
 - Elegir proveedor (`gemini`, `openai`, `banco`).
 - Configurar por proveedor:
   - API URL
+  - MODELO (combo editable)
   - API KEY
 
 La configuracion se guarda localmente en `config.properties`.
+
+Modelos sugeridos en la UI:
+
+- Gemini: `gemini-3.1-flash-lite-preview` (default), `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.0-flash-lite`.
+- OpenAI: `gpt-4.1-mini` (default), `gpt-4.1`, `gpt-4.1-nano`, `gpt-4o-mini`, `gpt-4o`, `gpt-5-mini`, `gpt-5`, `gpt-5-nano`.
+- Banco: `banco-ocr-v1` (default), `banco-ocr-v2`.
 
 En la ventana principal:
 
