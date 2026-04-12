@@ -368,7 +368,10 @@ public final class ProcessingDialog extends JDialog {
     private static void appendResultMetadata(ObjectNode node, DocumentProcessingResult result) {
         node.put("analysis_model", coalesce("unknown", result.model()));
         node.put("analysis_model_version", coalesce("unknown", result.modelVersion()));
-        putNullableLong(node, "image_size_bytes", result.imageSizeBytes());
+        Long imageSizeBytes = result.imageSizeBytes();
+        putNullableLong(node, "image_size_bytes", imageSizeBytes);
+        putNullableDouble(node, "image_size_kb", imageSizeBytes == null ? null : round(imageSizeBytes / 1024d, 2));
+        putNullableDouble(node, "image_size_mb", imageSizeBytes == null ? null : round(imageSizeBytes / (1024d * 1024d), 2));
         putNullableInt(node, "image_width", result.imageWidth());
         putNullableInt(node, "image_height", result.imageHeight());
         putNullableLong(node, "processing_time_ms", result.processingTimeMs());
@@ -388,6 +391,19 @@ public final class ProcessingDialog extends JDialog {
             return;
         }
         node.put(fieldName, value);
+    }
+
+    private static void putNullableDouble(ObjectNode node, String fieldName, Double value) {
+        if (value == null) {
+            node.putNull(fieldName);
+            return;
+        }
+        node.put(fieldName, value);
+    }
+
+    private static double round(double value, int decimals) {
+        double factor = Math.pow(10, decimals);
+        return Math.round(value * factor) / factor;
     }
 
     private static String sanitizeJson(String value) {
