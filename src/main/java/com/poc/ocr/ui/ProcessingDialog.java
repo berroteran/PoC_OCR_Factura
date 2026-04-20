@@ -5,9 +5,8 @@ import com.poc.ocr.model.DocumentProcessingResult;
 import com.poc.ocr.model.ExtractionPayload;
 import com.poc.ocr.service.DocumentInputPreparer;
 import com.poc.ocr.service.ExecutionAuditWriter;
-import com.poc.ocr.service.GeminiOcrService;
 import com.poc.ocr.service.OcrService;
-import com.poc.ocr.service.OpenAIOcrService;
+import com.poc.ocr.service.OcrServiceFactory;
 import com.poc.ocr.service.ResultWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -80,7 +79,7 @@ public final class ProcessingDialog extends JDialog {
         for (int i = 0; i < documents.size(); i++) {
             processedResults.add(null);
         }
-        this.ocrService = buildService(config);
+        this.ocrService = OcrServiceFactory.fromConfig(config);
 
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(10, 10));
@@ -393,6 +392,7 @@ public final class ProcessingDialog extends JDialog {
         putNullableInt(node, "image_width", result.imageWidth());
         putNullableInt(node, "image_height", result.imageHeight());
         putNullableLong(node, "processing_time_ms", result.processingTimeMs());
+        putNullableDouble(node, "processing_time_seconds", result.processingTimeSeconds());
     }
 
     private static void putNullableLong(ObjectNode node, String fieldName, Long value) {
@@ -1090,22 +1090,4 @@ public final class ProcessingDialog extends JDialog {
         }
     }
 
-    private static OcrService buildService(AppConfig config) {
-        return switch (config.provider().toLowerCase()) {
-            case "gemini" -> new GeminiOcrService(config.geminiApiKey(), config.geminiModel(), config.geminiApiUrl());
-            case "openai" -> new OpenAIOcrService(
-                    config.openAiApiKey(),
-                    config.openAiModel(),
-                    config.openAiApiUrl(),
-                    "openai"
-            );
-            case "banco" -> new OpenAIOcrService(
-                    config.bancoApiKey(),
-                    config.bancoModel(),
-                    config.bancoApiUrl(),
-                    "banco"
-            );
-            default -> throw new IllegalArgumentException("Proveedor no soportado: " + config.provider());
-        };
-    }
 }
