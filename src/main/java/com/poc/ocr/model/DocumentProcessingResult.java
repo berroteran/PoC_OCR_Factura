@@ -18,6 +18,7 @@ public record DocumentProcessingResult(
         Integer imageWidth,
         Integer imageHeight,
         Long processingTimeMs,
+        Double processingTimeSeconds,
         boolean success,
         String error,
         ExtractionPayload extraction
@@ -49,6 +50,7 @@ public record DocumentProcessingResult(
                 imageWidth,
                 imageHeight,
                 processingTimeMs,
+                toProcessingTimeSeconds(processingTimeMs),
                 true,
                 null,
                 extraction
@@ -82,6 +84,7 @@ public record DocumentProcessingResult(
                 imageWidth,
                 imageHeight,
                 processingTimeMs,
+                toProcessingTimeSeconds(processingTimeMs),
                 false,
                 error,
                 null
@@ -104,6 +107,10 @@ public record DocumentProcessingResult(
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Double toProcessingTimeSeconds(long processingTimeMs) {
+        return processingTimeMs / 1000d;
     }
 
     private static String resolveModelVersionFromModelName(String model) {
